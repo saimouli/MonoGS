@@ -177,7 +177,10 @@ class FrontEnd(mp.Process):
 
             with torch.no_grad():
                 pose_optimizer.step()
-                converged = update_pose(viewpoint)
+                #converged = update_pose(viewpoint)
+                # update with the GT pose
+                viewpoint.update_RT(viewpoint.R_gt, viewpoint.T_gt)
+                converged = True
 
             if tracking_itr % 10 == 0:
                 self.q_main2vis.put(

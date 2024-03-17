@@ -101,17 +101,18 @@ class TUMParser:
                 indicies += [i]
 
         self.color_paths, self.poses, self.depth_paths, self.frames = [], [], [], []
+        self.timestamps = []
 
         for ix in indicies:
             (i, j, k) = associations[ix]
             self.color_paths += [os.path.join(datapath, image_data[i, 1])]
             self.depth_paths += [os.path.join(datapath, depth_data[j, 1])]
-
+            self.timestamps += [tstamp_image[i]]
             quat = pose_vecs[k][4:]
             trans = pose_vecs[k][1:4]
             T = trimesh.transformations.quaternion_matrix(np.roll(quat, 1))
             T[:3, 3] = trans
-            self.poses += [np.linalg.inv(T)]
+            self.poses += [np.linalg.inv(T)] # cam2wld
 
             frame = {
                 "file_path": str(os.path.join(datapath, image_data[i, 1])),
@@ -399,7 +400,9 @@ class TUMDataset(MonocularDataset):
         self.num_imgs = parser.n_img
         self.color_paths = parser.color_paths
         self.depth_paths = parser.depth_paths
+        self.timestamps = parser.timestamps
         self.poses = parser.poses
+        #self.timestamps = parser.timestamps
 
 
 class ReplicaDataset(MonocularDataset):

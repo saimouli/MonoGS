@@ -1,7 +1,7 @@
 inherit_from: "configs/mono/table/base_config.yaml"
 
 Dataset:
-  dataset_path: "/media/rpng/RPNG_FLASH_4/datasets/TABLE/table01_all_frames_old/"
+  dataset_path: "/media/rpng/RPNG_FLASH_4/datasets/TABLE/table01_all_frames_old"
   Calibration:
     fx: 416.85
     fy: 414.92
