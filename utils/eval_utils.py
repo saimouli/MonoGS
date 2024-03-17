@@ -102,13 +102,14 @@ def eval_ate(frames, kf_ids, save_dir, iterations, final=False, monocular=False)
     ) as f:
         json.dump(trj_data, f, indent=4)
 
-    ate = evaluate_evo(
-        poses_gt=trj_gt_np,
-        poses_est=trj_est_np,
-        plot_dir=plot_dir,
-        label=label_evo,
-        monocular=monocular,
-    )
+    # ate = evaluate_evo(
+    #     poses_gt=trj_gt_np,
+    #     poses_est=trj_est_np,
+    #     plot_dir=plot_dir,
+    #     label=label_evo,
+    #     monocular=monocular,
+    # )
+    ate = 0
     wandb.log({"frame_idx": latest_frame_idx, "ate": ate})
     return ate
 

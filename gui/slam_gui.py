@@ -424,6 +424,8 @@ class SLAM_GUI:
             for keyframe in gaussian_packet.keyframes:
                 name = "keyframe_{}".format(keyframe.uid)
                 frustum = self.add_camera(keyframe, name=name, color=[0, 0, 1])
+                name = "gt_{}".format( keyframe.uid)
+                frustum = self.add_camera(keyframe, name=name, color=[1, 0, 0], gt=True)
 
         if gaussian_packet.kf_window is not None:
             self.kf_window = gaussian_packet.kf_window

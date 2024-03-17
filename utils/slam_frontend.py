@@ -3,6 +3,7 @@ import time
 import numpy as np
 import torch
 import torch.multiprocessing as mp
+import cv2
 
 from gaussian_splatting.gaussian_renderer import render
 from gaussian_splatting.utils.graphics_utils import getProjectionMatrix2, getWorld2View2
@@ -13,6 +14,7 @@ from utils.logging_utils import Log
 from utils.multiprocessing_utils import clone_obj
 from utils.pose_utils import update_pose
 from utils.slam_utils import get_loss_tracking, get_median_depth
+from scipy.spatial.transform import Rotation as R
 
 
 class FrontEnd(mp.Process):
@@ -106,7 +108,7 @@ class FrontEnd(mp.Process):
         initial_depth = torch.from_numpy(viewpoint.depth).unsqueeze(0)
         initial_depth[~valid_rgb.cpu()] = 0  # Ignore the invalid rgb pixels
         return initial_depth[0].numpy()
-
+    
     def initialize(self, cur_frame_idx, viewpoint):
         self.initialized = not self.monocular
         self.kf_indices = []
@@ -119,6 +121,30 @@ class FrontEnd(mp.Process):
 
         # Initialise the frame at the ground truth pose
         viewpoint.update_RT(viewpoint.R_gt, viewpoint.T_gt)
+        
+        def pose_matrix_array(R, T):
+            pose = np.eye(4)
+            pose[0:3, 0:3] = R.detach().cpu().numpy()
+            pose[0:3, 3] = T.detach().cpu().numpy()
+            return pose
+    
+        with open('/media/saimouli/RPNG_FLASH_4/datasets/TABLE/table01_all_frames_old/mono_pose.txt', 'w') as f:
+            # Iterate through each pose
+            #for rel_w2c in all_w2cs:
+            # Extract translation
+            #tx, ty, tz = viewpoint.T_gt
+
+            # Extract rotation matrix and convert it to quaternion
+            #rot_matrix = viewpoint.R_gt
+            #rot_python = R.from_matrix(rot_matrix.detach().cpu().numpy())
+            #qx, qy, qz, qw = rot_python.as_quat()
+            pose_mat = np.linalg.inv(pose_matrix_array(viewpoint.R_gt, viewpoint.T_gt))
+            qx, qy, qz, qw = R.from_matrix(pose_mat[0:3, 0:3]).as_quat()
+            tx, ty, tz = pose_mat[0:3, 3]
+            
+            # Format the pose data and write to the file
+            pose_str = f"{viewpoint.timestamp} {tx} {ty} {tz} {qx} {qy} {qz} {qw}\n"
+            f.write(pose_str)
 
         self.kf_indices = []
         depth_map = self.add_new_keyframe(cur_frame_idx, init=True)
@@ -128,6 +154,7 @@ class FrontEnd(mp.Process):
     def tracking(self, cur_frame_idx, viewpoint):
         prev = self.cameras[cur_frame_idx - self.use_every_n_frames]
         viewpoint.update_RT(prev.R, prev.T)
+        #viewpoint.update_RT(viewpoint.R_gt, viewpoint.T_gt)
 
         opt_params = []
         opt_params.append(
@@ -160,6 +187,7 @@ class FrontEnd(mp.Process):
         )
 
         pose_optimizer = torch.optim.Adam(opt_params)
+
         for tracking_itr in range(self.tracking_itr_num):
             render_pkg = render(
                 viewpoint, self.gaussians, self.pipeline_params, self.background
@@ -169,6 +197,11 @@ class FrontEnd(mp.Process):
                 render_pkg["depth"],
                 render_pkg["opacity"],
             )
+            #print("tracking_itr_num: {} Tracking iteration: {}".format(self.tracking_itr_num, tracking_itr))
+            cv2.imshow("image", image.detach().cpu().numpy().transpose(1, 2, 0))
+            cv2.imshow("gt_img: ", viewpoint.original_image.detach().cpu().numpy().transpose(1, 2, 0))
+            cv2.waitKey(100)
+
             pose_optimizer.zero_grad()
             loss_tracking = get_loss_tracking(
                 self.config, image, depth, opacity, viewpoint
@@ -177,10 +210,10 @@ class FrontEnd(mp.Process):
 
             with torch.no_grad():
                 pose_optimizer.step()
-                #converged = update_pose(viewpoint)
-                # update with the GT pose
-                viewpoint.update_RT(viewpoint.R_gt, viewpoint.T_gt)
-                converged = True
+                converged = update_pose(viewpoint)
+                ## update with the GT pose
+                # viewpoint.update_RT(viewpoint.R_gt, viewpoint.T_gt)
+                # converged = True
 
             if tracking_itr % 10 == 0:
                 self.q_main2vis.put(
@@ -194,10 +227,36 @@ class FrontEnd(mp.Process):
                 )
             if converged:
                 break
+        
+        def pose_matrix_array(R, T):
+            pose = np.eye(4)
+            pose[0:3, 0:3] = R.detach().cpu().numpy()
+            pose[0:3, 3] = T.detach().cpu().numpy()
+            return pose
+        
+        with open('/media/saimouli/RPNG_FLASH_4/datasets/TABLE/table01_all_frames_old/mono_pose.txt', 'a') as f:
+            # Iterate through each pose
+            #for rel_w2c in all_w2cs:
+            # Extract translation
+            # tx, ty, tz = viewpoint.T
+            # # Extract rotation matrix and convert it to quaternion
+            # rot_matrix = viewpoint.R
+            # invert the matrix
+            #pose_mat.tolist()
+            #rot_python = R.from_matrix(rot_matrix.detach().cpu().numpy())
+            #qx, qy, qz, qw = rot_python.as_quat()
+            pose_mat = np.linalg.inv(pose_matrix_array(viewpoint.R, viewpoint.T))
+            qx, qy, qz, qw = R.from_matrix(pose_mat[0:3, 0:3]).as_quat()
+            tx, ty, tz = pose_mat[0:3, 3]
+            
+            # Format the pose data and write to the file
+            pose_str = f"{viewpoint.timestamp} {tx} {ty} {tz} {qx} {qy} {qz} {qw}\n"
+            f.write(pose_str)
 
+        #print("done tracking")
         self.median_depth = get_median_depth(depth, opacity)
         return render_pkg
-
+    
     def is_keyframe(
         self,
         cur_frame_idx,
