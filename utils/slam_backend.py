@@ -439,18 +439,14 @@ class BackEnd(mp.Process):
                             opt_params.append(
                                 {
                                     "params": [viewpoint.cam_rot_delta],
-                                    "lr": self.config["Training"]["lr"]["cam_rot_delta"]
-                                    * 0.5,
+                                    "lr": self.config["Training"]["lr"]["cam_rot_delta"]* 0.5,
                                     "name": "rot_{}".format(viewpoint.uid),
                                 }
                             )
                             opt_params.append(
                                 {
                                     "params": [viewpoint.cam_trans_delta],
-                                    "lr": self.config["Training"]["lr"][
-                                        "cam_trans_delta"
-                                    ]
-                                    * 0.5,
+                                    "lr": self.config["Training"]["lr"]["cam_trans_delta"]* 0.5,
                                     "name": "trans_{}".format(viewpoint.uid),
                                 }
                             )
