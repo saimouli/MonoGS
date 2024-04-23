@@ -12,6 +12,9 @@ from utils.multiprocessing_utils import clone_obj
 from utils.pose_utils import update_pose
 from utils.slam_utils import get_loss_mapping
 
+def record_timing_and_gaussians(num_gaussians, prune_time, densify_time, iteration_count, iter_time):
+    with open("timing_analysis.txt", "a") as file:
+        file.write(f"{iteration_count}, {num_gaussians}, {densify_time + prune_time}, {iter_time}\n")
 
 class BackEnd(mp.Process):
     def __init__(self, config):
@@ -25,6 +28,7 @@ class BackEnd(mp.Process):
         self.frontend_queue = None
         self.backend_queue = None
         self.live_mode = False
+        self.iter_counter = 0
 
         self.pause = False
         self.device = "cuda"
@@ -156,6 +160,7 @@ class BackEnd(mp.Process):
         for _ in range(iters):
             self.iteration_count += 1
             self.last_sent += 1
+            iter_time = 0
 
             loss_mapping = 0
             viewspace_point_tensor_acm = []
@@ -229,6 +234,8 @@ class BackEnd(mp.Process):
             scaling = self.gaussians.get_scaling
             isotropic_loss = torch.abs(scaling - scaling.mean(dim=1).view(-1, 1))
             loss_mapping += 10 * isotropic_loss.mean()
+
+            start_iter_time = time.time()
             loss_mapping.backward()
             gaussian_split = False
             ## Deinsifying / Pruning Gaussians
@@ -238,11 +245,13 @@ class BackEnd(mp.Process):
                     kf_idx = current_window[idx]
                     n_touched = n_touched_acm[idx]
                     self.occ_aware_visibility[kf_idx] = (n_touched > 0).long()
-
+                
+                prune_time = 0; densify_time = 0; num_prune_gaussians = 0
                 # # compute the visibility of the gaussians
                 # # Only prune on the last iteration and when we have full window
                 if prune:
                     if len(current_window) == self.config["Training"]["window_size"]:
+                        start_time = time.time()
                         prune_mode = self.config["Training"]["prune_mode"]
                         prune_coviz = 3
                         self.gaussians.n_obs.fill_(0)
@@ -268,6 +277,8 @@ class BackEnd(mp.Process):
                                 self.occ_aware_visibility[current_idx] = (
                                     self.occ_aware_visibility[current_idx][~to_prune]
                                 )
+                        end_time = time.time()
+                        prune_time = end_time - start_time
                         if not self.initialized:
                             self.initialized = True
                             Log("Initialized SLAM")
@@ -288,14 +299,19 @@ class BackEnd(mp.Process):
                     == self.gaussian_update_offset
                 )
                 if update_gaussian:
+                    start_time = time.time()
                     self.gaussians.densify_and_prune(
                         self.opt_params.densify_grad_threshold,
                         self.gaussian_th,
                         self.gaussian_extent,
                         self.size_threshold,
                     )
+                    end_time = time.time()
+                    densify_time = end_time - start_time
                     gaussian_split = True
 
+                #record_timing_and_gaussians(len(self.gaussians._xyz), prune_time, densify_time, self.iter_counter)
+                self.iter_counter += 1
                 ## Opacity reset
                 if (self.iteration_count % self.gaussian_reset) == 0 and (
                     not update_gaussian
@@ -309,6 +325,10 @@ class BackEnd(mp.Process):
                 self.gaussians.update_learning_rate(self.iteration_count)
                 self.keyframe_optimizers.step()
                 self.keyframe_optimizers.zero_grad(set_to_none=True)
+                end_iter_time = time.time()
+                record_timing_and_gaussians(len(self.gaussians._xyz), prune_time, densify_time, 
+                                            self.iter_counter, (end_iter_time - start_iter_time))
+
                 # Pose update
                 for cam_idx in range(min(frames_to_optimize, len(current_window))):
                     viewpoint = viewpoint_stack[cam_idx]
